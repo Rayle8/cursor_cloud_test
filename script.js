@@ -14,6 +14,7 @@ const resetBtn = document.getElementById("reset-btn");
 const METHODS = {
   AMORTIZED: "amortized",
   EQUAL_PRINCIPAL: "equal_principal",
+  INTEREST_ONLY: "interest_only",
 };
 
 let lastSchedule = [];
@@ -170,6 +171,8 @@ function clearErrors() {
 function calculateLoan(params) {
   if (params.method === METHODS.EQUAL_PRINCIPAL) {
     return calculateEqualPrincipalLoan(params);
+  } else if (params.method === METHODS.INTEREST_ONLY) {
+    return calculateInterestOnlyLoan(params);
   }
   return calculateAmortizedLoan(params);
 }
@@ -340,12 +343,103 @@ function updateSummary({ summary }) {
     if (extraPayment > 0.01) {
       paymentText += `（含每期额外 ${formatterCurrency.format(extraPayment)}）`;
     }
+  } else if (paymentInfo?.type === METHODS.INTEREST_ONLY) {
+    const { firstPayment, lastPayment, extraPayment } = paymentInfo;
+    if (Math.abs(firstPayment - lastPayment) < 0.01) {
+      paymentText = formatterCurrency.format(firstPayment);
+    } else {
+      paymentText = `${formatterCurrency.format(firstPayment)} → ${formatterCurrency.format(lastPayment)}`;
+    }
+    if (extraPayment > 0.01) {
+      paymentText += `（含每期额外 ${formatterCurrency.format(extraPayment)}）`;
+    }
   }
 
   paymentAmountEl.textContent = paymentText;
   totalPaidEl.textContent = formatterCurrency.format(totalPaid);
   totalInterestEl.textContent = formatterCurrency.format(totalInterest);
   payoffTimeEl.textContent = payoffLabel;
+}
+
+function calculateInterestOnlyLoan({
+  principal,
+  annualRate,
+  years,
+  paymentsPerYear,
+  extraPayment,
+}) {
+  const periodicRate = annualRate > 0 ? annualRate / 100 / paymentsPerYear : 0;
+  const totalPeriods = Math.max(1, Math.round(years * paymentsPerYear));
+  // 计划为“每年末归还本金一次”
+  const fullYears = Math.floor(totalPeriods / paymentsPerYear);
+  const remainderPeriods = totalPeriods % paymentsPerYear;
+  const annualRepaymentCount = Math.max(1, fullYears + (remainderPeriods > 0 ? 1 : 0));
+  const plannedAnnualPrincipal = principal / annualRepaymentCount;
+
+  const schedule = [];
+  let balance = principal;
+  let period = 0;
+  let totalInterest = 0;
+  let totalPaid = 0;
+
+  const maxIterations = totalPeriods * 2 + 10;
+
+  while (balance > 0 && period < maxIterations) {
+    period += 1;
+    const interest = periodicRate === 0 ? 0 : balance * periodicRate;
+
+    const isEndOfYear = period % paymentsPerYear === 0;
+    const isFinalPeriod = period === totalPeriods;
+
+    // 每年最后一期按计划归还一笔本金；其他期只付利息（可叠加额外还款）
+    let principalPaid = 0;
+    if (isEndOfYear || isFinalPeriod) {
+      principalPaid = Math.min(plannedAnnualPrincipal, balance);
+    }
+
+    if (extraPayment > 0 && balance - principalPaid > 0) {
+      const extra = Math.min(extraPayment, balance - principalPaid);
+      principalPaid += extra;
+    }
+
+    const payment = interest + principalPaid;
+    balance = Math.max(0, balance - principalPaid);
+
+    totalInterest += interest;
+    totalPaid += payment;
+
+    schedule.push({
+      period,
+      payment,
+      principal: principalPaid,
+      interest,
+      balance,
+    });
+
+    if (balance <= 0.01) {
+      balance = 0;
+      break;
+    }
+  }
+
+  const payoffLabel = formatPayoffTime(period, paymentsPerYear);
+  const firstPayment = schedule[0]?.payment ?? 0;
+  const lastPayment = schedule[schedule.length - 1]?.payment ?? 0;
+
+  return {
+    schedule,
+    summary: {
+      paymentInfo: {
+        type: METHODS.INTEREST_ONLY,
+        firstPayment,
+        lastPayment,
+        extraPayment,
+      },
+      totalPaid,
+      totalInterest,
+      payoffLabel,
+    },
+  };
 }
 
 function renderSchedule(schedule) {

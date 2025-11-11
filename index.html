@@ -74,6 +74,18 @@
           </div>
 
           <div class="fieldset">
+            <label for="method">还款方式</label>
+            <select id="method" name="method">
+              <option value="amortized" selected>等额本息</option>
+              <option value="equal_principal">等额本金</option>
+            </select>
+            <span class="error-message" data-for="method"></span>
+            <p class="hint">
+              等额本息每期还款相同；等额本金本金固定、利息递减，前期压力较大。
+            </p>
+          </div>
+
+          <div class="fieldset">
             <label for="extra">额外每期还款（元，可选）</label>
             <input
               type="number"

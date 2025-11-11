@@ -11,6 +11,11 @@ const toggleScheduleBtn = document.getElementById("toggle-schedule");
 const downloadCsvBtn = document.getElementById("download-csv");
 const resetBtn = document.getElementById("reset-btn");
 
+const METHODS = {
+  AMORTIZED: "amortized",
+  EQUAL_PRINCIPAL: "equal_principal",
+};
+
 let lastSchedule = [];
 let lastSummary = null;
 
@@ -41,9 +46,10 @@ form.addEventListener("submit", (event) => {
   const rate = parseFloat(formData.get("rate"));
   const years = parseFloat(formData.get("years"));
   const paymentsPerYear = parseInt(formData.get("frequency"), 10);
+  const method = formData.get("method") || METHODS.AMORTIZED;
   const extra = parseFloat(formData.get("extra")) || 0;
 
-  const errors = validateInputs({ principal, rate, years, extra });
+  const errors = validateInputs({ principal, rate, years, extra, method });
 
   if (Object.keys(errors).length > 0) {
     showErrors(errors);
@@ -57,6 +63,7 @@ form.addEventListener("submit", (event) => {
     annualRate: rate,
     years,
     paymentsPerYear,
+    method,
     extraPayment: extra,
   });
 
@@ -119,7 +126,7 @@ resetBtn.addEventListener("click", () => {
   clearErrors();
 });
 
-function validateInputs({ principal, rate, years, extra }) {
+function validateInputs({ principal, rate, years, extra, method }) {
   const errors = {};
 
   if (!Number.isFinite(principal) || principal <= 0) {
@@ -136,6 +143,10 @@ function validateInputs({ principal, rate, years, extra }) {
 
   if (!Number.isFinite(extra) || extra < 0) {
     errors.extra = "额外还款需大于或等于 0。";
+  }
+
+  if (!Object.values(METHODS).includes(method)) {
+    errors.method = "请选择有效的还款方式。";
   }
 
   return errors;
@@ -156,7 +167,14 @@ function clearErrors() {
     .forEach((el) => (el.textContent = ""));
 }
 
-function calculateLoan({
+function calculateLoan(params) {
+  if (params.method === METHODS.EQUAL_PRINCIPAL) {
+    return calculateEqualPrincipalLoan(params);
+  }
+  return calculateAmortizedLoan(params);
+}
+
+function calculateAmortizedLoan({
   principal,
   annualRate,
   years,
@@ -214,8 +232,80 @@ function calculateLoan({
   return {
     schedule,
     summary: {
-      paymentPerPeriod: paymentWithExtra,
-      basePayment,
+      paymentInfo: {
+        type: METHODS.AMORTIZED,
+        paymentPerPeriod: paymentWithExtra,
+        basePayment,
+        extraPayment,
+      },
+      totalPaid,
+      totalInterest,
+      payoffLabel,
+    },
+  };
+}
+
+function calculateEqualPrincipalLoan({
+  principal,
+  annualRate,
+  years,
+  paymentsPerYear,
+  extraPayment,
+}) {
+  const periodicRate = annualRate > 0 ? annualRate / 100 / paymentsPerYear : 0;
+  const totalPeriods = Math.max(1, Math.round(years * paymentsPerYear));
+  const basePrincipalPerPeriod = principal / totalPeriods;
+
+  const schedule = [];
+  let balance = principal;
+  let period = 0;
+  let totalInterest = 0;
+  let totalPaid = 0;
+
+  const maxIterations = totalPeriods * 2 + 10;
+
+  while (balance > 0 && period < maxIterations) {
+    period += 1;
+    const interest = periodicRate === 0 ? 0 : balance * periodicRate;
+    let principalPayment = basePrincipalPerPeriod + extraPayment;
+
+    if (principalPayment > balance) {
+      principalPayment = balance;
+    }
+
+    const payment = principalPayment + interest;
+
+    balance = Math.max(0, balance - principalPayment);
+    totalInterest += interest;
+    totalPaid += payment;
+
+    schedule.push({
+      period,
+      payment,
+      principal: principalPayment,
+      interest,
+      balance,
+    });
+
+    if (balance <= 0.01) {
+      balance = 0;
+      break;
+    }
+  }
+
+  const payoffLabel = formatPayoffTime(period, paymentsPerYear);
+  const firstPayment = schedule[0]?.payment ?? 0;
+  const lastPayment = schedule[schedule.length - 1]?.payment ?? 0;
+
+  return {
+    schedule,
+    summary: {
+      paymentInfo: {
+        type: METHODS.EQUAL_PRINCIPAL,
+        firstPayment,
+        lastPayment,
+        extraPayment,
+      },
       totalPaid,
       totalInterest,
       payoffLabel,
@@ -224,17 +314,33 @@ function calculateLoan({
 }
 
 function updateSummary({ summary }) {
-  const { paymentPerPeriod, totalPaid, totalInterest, payoffLabel, basePayment } =
-    summary;
+  const { paymentInfo, totalPaid, totalInterest, payoffLabel } = summary;
 
-  const extra = paymentPerPeriod - basePayment;
+  let paymentText = "--";
 
-  const paymentText =
-    extra > 0.01
-      ? `${formatterCurrency.format(paymentPerPeriod)}（含基础 ${formatterCurrency.format(
-          basePayment
-        )} + 额外 ${formatterCurrency.format(extra)}）`
-      : formatterCurrency.format(paymentPerPeriod);
+  if (paymentInfo?.type === METHODS.AMORTIZED) {
+    const { paymentPerPeriod, basePayment, extraPayment } = paymentInfo;
+    const extra = extraPayment;
+    paymentText =
+      extra > 0.01
+        ? `${formatterCurrency.format(paymentPerPeriod)}（含基础 ${formatterCurrency.format(
+            basePayment
+          )} + 额外 ${formatterCurrency.format(extraPayment)}）`
+        : formatterCurrency.format(paymentPerPeriod);
+  } else if (paymentInfo?.type === METHODS.EQUAL_PRINCIPAL) {
+    const { firstPayment, lastPayment, extraPayment } = paymentInfo;
+    if (Math.abs(firstPayment - lastPayment) < 0.01) {
+      paymentText = formatterCurrency.format(firstPayment);
+    } else {
+      paymentText = `${formatterCurrency.format(
+        firstPayment
+      )} → ${formatterCurrency.format(lastPayment)}`;
+    }
+
+    if (extraPayment > 0.01) {
+      paymentText += `（含每期额外 ${formatterCurrency.format(extraPayment)}）`;
+    }
+  }
 
   paymentAmountEl.textContent = paymentText;
   totalPaidEl.textContent = formatterCurrency.format(totalPaid);

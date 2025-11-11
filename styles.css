@@ -168,6 +168,12 @@ select:focus {
   min-height: 1em;
 }
 
+.hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

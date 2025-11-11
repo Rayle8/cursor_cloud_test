@@ -78,10 +78,11 @@
             <select id="method" name="method">
               <option value="amortized" selected>等额本息</option>
               <option value="equal_principal">等额本金</option>
+              <option value="interest_only">先息后本</option>
             </select>
             <span class="error-message" data-for="method"></span>
             <p class="hint">
-              等额本息每期还款相同；等额本金本金固定、利息递减，前期压力较大。
+              等额本息每期还款相同；等额本金本金固定、利息递减；先息后本前期仅付利息，最后一期归还剩余本金。
             </p>
           </div>
 

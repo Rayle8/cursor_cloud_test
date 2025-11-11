@@ -47,7 +47,11 @@ form.addEventListener("submit", (event) => {
   const rate = parseFloat(formData.get("rate"));
   const years = parseFloat(formData.get("years"));
   const paymentsPerYear = parseInt(formData.get("frequency"), 10);
-  const method = formData.get("method") || METHODS.AMORTIZED;
+  const rawMethod = formData.get("method");
+  const method =
+    typeof rawMethod === "string" && rawMethod.trim() !== ""
+      ? rawMethod.trim()
+      : METHODS.AMORTIZED;
   const extra = parseFloat(formData.get("extra")) || 0;
 
   const errors = validateInputs({ principal, rate, years, extra, method });
@@ -146,7 +150,10 @@ function validateInputs({ principal, rate, years, extra, method }) {
     errors.extra = "额外还款需大于或等于 0。";
   }
 
-  if (!Object.values(METHODS).includes(method)) {
+  const normalizedMethod =
+    typeof method === "string" ? method.trim() : "";
+
+  if (!Object.values(METHODS).includes(normalizedMethod)) {
     errors.method = "请选择有效的还款方式。";
   }
 

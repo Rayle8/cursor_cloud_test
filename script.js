@@ -370,6 +370,11 @@ function calculateInterestOnlyLoan({
 }) {
   const periodicRate = annualRate > 0 ? annualRate / 100 / paymentsPerYear : 0;
   const totalPeriods = Math.max(1, Math.round(years * paymentsPerYear));
+  // 计划为“每年末归还本金一次”
+  const fullYears = Math.floor(totalPeriods / paymentsPerYear);
+  const remainderPeriods = totalPeriods % paymentsPerYear;
+  const annualRepaymentCount = Math.max(1, fullYears + (remainderPeriods > 0 ? 1 : 0));
+  const plannedAnnualPrincipal = principal / annualRepaymentCount;
 
   const schedule = [];
   let balance = principal;
@@ -383,19 +388,22 @@ function calculateInterestOnlyLoan({
     period += 1;
     const interest = periodicRate === 0 ? 0 : balance * periodicRate;
 
-    const isLastPlannedPeriod = period === totalPeriods;
-    let principalPaid = 0;
-    let payment = 0;
+    const isEndOfYear = period % paymentsPerYear === 0;
+    const isFinalPeriod = period === totalPeriods;
 
-    if (isLastPlannedPeriod) {
-      principalPaid = balance;
-      payment = interest + principalPaid;
-      balance = 0;
-    } else {
-      principalPaid = Math.min(extraPayment, balance);
-      payment = interest + principalPaid;
-      balance = Math.max(0, balance - principalPaid);
+    // 每年最后一期按计划归还一笔本金；其他期只付利息（可叠加额外还款）
+    let principalPaid = 0;
+    if (isEndOfYear || isFinalPeriod) {
+      principalPaid = Math.min(plannedAnnualPrincipal, balance);
     }
+
+    if (extraPayment > 0 && balance - principalPaid > 0) {
+      const extra = Math.min(extraPayment, balance - principalPaid);
+      principalPaid += extra;
+    }
+
+    const payment = interest + principalPaid;
+    balance = Math.max(0, balance - principalPaid);
 
     totalInterest += interest;
     totalPaid += payment;
